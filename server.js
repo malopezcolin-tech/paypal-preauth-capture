@@ -5,32 +5,34 @@ import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 
 dotenv.config();
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Servir archivos estáticos
 app.use(express.static(path.join(__dirname, "public")));
 
-// Verificar variables
+// ✅ Verificar variables
 app.get("/check-env", (req, res) => {
   res.json({
     paypal_client_id: process.env.PAYPAL_CLIENT_ID ? "✅ Configurado" : "❌ Faltante",
-    paypal_secret: process.env.PAYPAL_CLIENT_SECRET ? "✅ Configurado" : "❌ Faltante",
+    paypal_secret: process.env.PAYPAL_SECRET ? "✅ Configurado" : "❌ Faltante",
     paypal_api_base: process.env.PAYPAL_API_BASE || "❌ Faltante",
-    node_env: process.env.NODE_ENV || "development",
     port: process.env.PORT || 3000
   });
 });
 
-// Obtener access token
+// 🔑 Generar token
 async function generateAccessToken() {
-  const response = await fetch(\`\${process.env.PAYPAL_API_BASE}/v1/oauth2/token\`, {
+  const response = await fetch(`${process.env.PAYPAL_API_BASE}/v1/oauth2/token`, {
     method: "POST",
     headers: {
       "Authorization": "Basic " + Buffer.from(
-        process.env.PAYPAL_CLIENT_ID + ":" + process.env.PAYPAL_CLIENT_SECRET
+        process.env.PAYPAL_CLIENT_ID + ":" + process.env.PAYPAL_SECRET
       ).toString("base64"),
       "Content-Type": "application/x-www-form-urlencoded"
     },
@@ -41,17 +43,17 @@ async function generateAccessToken() {
   return data.access_token;
 }
 
-// Crear orden (AUTHORIZE)
+// 🛒 Crear orden
 app.post("/create-order", async (req, res) => {
   try {
     const { amount } = req.body;
     const accessToken = await generateAccessToken();
 
-    const response = await fetch(\`\${process.env.PAYPAL_API_BASE}/v2/checkout/orders\`, {
+    const response = await fetch(`${process.env.PAYPAL_API_BASE}/v2/checkout/orders`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": \`Bearer \${accessToken}\`
+        "Authorization": `Bearer ${accessToken}`
       },
       body: JSON.stringify({
         intent: "AUTHORIZE",
@@ -74,39 +76,17 @@ app.post("/create-order", async (req, res) => {
   }
 });
 
-// Autorizar orden
-app.post("/authorize-order", async (req, res) => {
+// 💳 Capturar orden
+app.post("/capture-order", async (req, res) => {
   try {
     const { orderID } = req.body;
     const accessToken = await generateAccessToken();
 
-    const response = await fetch(\`\${process.env.PAYPAL_API_BASE}/v2/checkout/orders/\${orderID}/authorize\`, {
+    const response = await fetch(`${process.env.PAYPAL_API_BASE}/v2/checkout/orders/${orderID}/authorize`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": \`Bearer \${accessToken}\`
-      }
-    });
-
-    const data = await response.json();
-    res.json(data);
-  } catch (err) {
-    console.error("❌ Error en /authorize-order:", err);
-    res.status(500).json({ error: "Error al autorizar la orden" });
-  }
-});
-
-// Capturar pago
-app.post("/capture-order", async (req, res) => {
-  try {
-    const { authorizationID } = req.body;
-    const accessToken = await generateAccessToken();
-
-    const response = await fetch(\`\${process.env.PAYPAL_API_BASE}/v2/payments/authorizations/\${authorizationID}/capture\`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": \`Bearer \${accessToken}\`
+        "Authorization": `Bearer ${accessToken}`
       }
     });
 
@@ -118,8 +98,8 @@ app.post("/capture-order", async (req, res) => {
   }
 });
 
-// Iniciar servidor
+// 🚀 Servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(\`✅ Servidor corriendo en http://localhost:\${PORT}\`);
+  console.log(`✅ Servidor corriendo en http://localhost:${PORT}`);
 });
