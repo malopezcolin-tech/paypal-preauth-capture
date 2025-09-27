@@ -1,39 +1,25 @@
 import express from "express";
 import fetch from "node-fetch";
-import path from "path";
 import dotenv from "dotenv";
-import { fileURLToPath } from "url";
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 const app = express();
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.static("public"));
 
-// Servir archivos estáticos
-app.use(express.static(path.join(__dirname, "public")));
+const PORT = process.env.PORT || 10000;
 
-// ✅ Verificar variables
-app.get("/check-env", (req, res) => {
-  res.json({
-    paypal_client_id: process.env.PAYPAL_CLIENT_ID ? "✅ Configurado" : "❌ Faltante",
-    paypal_secret: process.env.PAYPAL_SECRET ? "✅ Configurado" : "❌ Faltante",
-    paypal_api_base: process.env.PAYPAL_API_BASE || "❌ Faltante",
-    port: process.env.PORT || 3000
-  });
-});
+// Obtener Access Token de PayPal
+async function getAccessToken() {
+  const auth = Buffer.from(
+    process.env.PAYPAL_CLIENT_ID + ":" + process.env.PAYPAL_SECRET
+  ).toString("base64");
 
-// 🔑 Generar token
-async function generateAccessToken() {
   const response = await fetch(`${process.env.PAYPAL_API_BASE}/v1/oauth2/token`, {
     method: "POST",
     headers: {
-      "Authorization": "Basic " + Buffer.from(
-        process.env.PAYPAL_CLIENT_ID + ":" + process.env.PAYPAL_SECRET
-      ).toString("base64"),
+      Authorization: `Basic ${auth}`,
       "Content-Type": "application/x-www-form-urlencoded"
     },
     body: "grant_type=client_credentials"
@@ -43,17 +29,16 @@ async function generateAccessToken() {
   return data.access_token;
 }
 
-// 🛒 Crear orden
+// Crear orden con intent=AUTHORIZE (preauth)
 app.post("/create-order", async (req, res) => {
   try {
-    const { amount } = req.body;
-    const accessToken = await generateAccessToken();
+    const accessToken = await getAccessToken();
 
     const response = await fetch(`${process.env.PAYPAL_API_BASE}/v2/checkout/orders`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${accessToken}`
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({
         intent: "AUTHORIZE",
@@ -61,7 +46,7 @@ app.post("/create-order", async (req, res) => {
           {
             amount: {
               currency_code: "USD",
-              value: amount || "10.00"
+              value: "10.00" // 🔹 dinámico si quieres
             }
           }
         ]
@@ -71,35 +56,36 @@ app.post("/create-order", async (req, res) => {
     const data = await response.json();
     res.json(data);
   } catch (err) {
-    console.error("❌ Error en /create-order:", err);
-    res.status(500).json({ error: "Error al crear la orden" });
+    console.error("Error al crear la orden:", err);
+    res.status(500).send("Error al crear la orden");
   }
 });
 
-// 💳 Capturar orden
-app.post("/capture-order", async (req, res) => {
+// Capturar (autorizar) el pago
+app.post("/capture-order/:orderId", async (req, res) => {
   try {
-    const { orderID } = req.body;
-    const accessToken = await generateAccessToken();
+    const { orderId } = req.params;
+    const accessToken = await getAccessToken();
 
-    const response = await fetch(`${process.env.PAYPAL_API_BASE}/v2/checkout/orders/${orderID}/authorize`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${accessToken}`
+    const response = await fetch(
+      `${process.env.PAYPAL_API_BASE}/v2/checkout/orders/${orderId}/authorize`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        }
       }
-    });
+    );
 
     const data = await response.json();
     res.json(data);
   } catch (err) {
-    console.error("❌ Error en /capture-order:", err);
-    res.status(500).json({ error: "Error al capturar la orden" });
+    console.error("Error al capturar la orden:", err);
+    res.status(500).send("Error al capturar la orden");
   }
 });
 
-// 🚀 Servidor
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Servidor corriendo en http://localhost:${PORT}`);
 });
